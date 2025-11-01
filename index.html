@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<title>Simulateur : interférences spatiales entre deux sources cohérentes</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    margin: 20px;
+    background: #f7f8fb;
+    color: #222;
+  }
+  h1 {
+    font-size: 22px;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+
+  .layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    max-width: 900px;
+    margin: auto;
+  }
+
+  .panel {
+    background: white;
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 2px 6px rgba(20,20,40,0.06);
+    width: 100%;
+  }
+
+  .panel-title {
+    font-size: 15px;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+
+  canvas {
+    width: 100%;
+    height: 120px;
+    display: block;
+    margin-top: 10px;
+    border-radius: 6px;
+    background: linear-gradient(#fff, #f6f9ff);
+  }
+
+  .footer {
+    font-size: 13px;
+    text-align: center;
+    color: #555;
+    margin-top: 8px;
+  }
+
+  .schema {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+
+  svg {
+    width: 100%;
+    max-width: 520px;
+    height: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>Simulateur : interférences spatiales entre deux sources cohérentes</h1>
+
+<div class="layout">
+
+  <div class="panel">
+    <div class="footer" style="margin-bottom: 8px;">
+      <div class="panel-title">
+  Déplace le point sur l’écran pour observer les interférences lumineuses.
+    </div>
+  </div>
+    <div class="schema">
+      <svg id="schema" viewBox="0 0 520 240">
+        <!-- Sources -->
+        <circle cx="120" cy="80" r="6" fill="#1b5"/>
+        <circle cx="120" cy="160" r="6" fill="#35a"/>
+        <text x="95" y="83" font-size="14" text-anchor="end">S₁</text>
+        <text x="95" y="163" font-size="14" text-anchor="end">S₂</text>
+
+        <!-- Zone d'intensité derrière l’écran -->
+        <rect id="intensityRect" x="435" y="30" width="50" height="180" rx="4" fill="rgb(255,0,0)" opacity="0.4"/>
+
+        <!-- Écran -->
+        <line x1="420" y1="30" x2="420" y2="210" stroke="#444" stroke-width="2"/>
+
+        <!-- Rayons -->
+        <line id="ray1" x1="126" y1="80" x2="420" y2="120" stroke="#1b5" stroke-width="1.5"/>
+        <line id="ray2" x1="126" y1="160" x2="420" y2="120" stroke="#35a" stroke-width="1.5"/>
+
+        <!-- Point M déplaçable -->
+        <circle id="pointM" cx="420" cy="120" r="8" fill="#a42" stroke="#fff" stroke-width="2" cursor="pointer"/>
+      </svg>
+    </div>
+
+    <div class="panel-title">Champ électrique au point observé</div>
+    <canvas id="wave1" height="120"></canvas>
+    <canvas id="wave2" height="120"></canvas>
+    <canvas id="sum" height="120"></canvas>
+
+    
+  </div>
+
+</div>
+<script scr = "chartmin.js"></script>
+<script>
+(() => {
+  const f = 10;           // fréquence
+  const a = 1;             // amplitude
+  const speed = 0.004;     // vitesse temporelle
+  let t = 0;
+  let phi0 = Math.random() * Math.PI * 2;
+  let deltaPhi = 0;        // différence de phase liée à la position de M
+
+  const pointM = document.getElementById("pointM");
+  const ray1 = document.getElementById("ray1");
+  const ray2 = document.getElementById("ray2");
+  const intensityRect = document.getElementById("intensityRect");
+  const schema = document.getElementById("schema");
+
+  const canvases = [
+    { id: 'wave1', color: '#1b5', label: 'Onde 1' },
+    { id: 'wave2', color: '#35a', label: 'Onde 2' },
+    { id: 'sum', color: '#a42', label: 'Somme' }
+  ];
+
+  // Changement de phase aléatoire toutes les 2 secondes
+  setInterval(() => {
+    phi0 = Math.random() * Math.PI * 1;
+  }, 2000);
+
+  // Interaction : déplacement du point M
+  let dragging = false;
+  schema.addEventListener("mousedown", (e) => {
+    dragging = true;
+    movePoint(e);
+  });
+  schema.addEventListener("mousemove", (e) => {
+    if (dragging) movePoint(e);
+  });
+  schema.addEventListener("mouseup", () => dragging = false);
+  schema.addEventListener("mouseleave", () => dragging = false);
+
+  function movePoint(e) {
+    const rect = schema.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const yClamped = Math.max(30, Math.min(210, y));
+    pointM.setAttribute("cy", yClamped);
+    ray1.setAttribute("y2", yClamped);
+    ray2.setAttribute("y2", yClamped);
+    deltaPhi = ((yClamped - 120) / 22.5) * Math.PI; // correspond à ±π
+  }
+
+  function drawWave(ctx, width, height, dataFunc, color, label, scale) {
+    ctx.clearRect(0, 0, width, height);
+    ctx.strokeStyle = 'rgba(50,60,80,0.06)';
+    ctx.beginPath();
+    ctx.moveTo(0, height / 2);
+    ctx.lineTo(width, height / 2);
+    ctx.stroke();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    const samples = width;
+    for (let x = 0; x < samples; x++) {
+      const s = dataFunc(x / samples);
+      const y = height / 2 - s * (height * 0.4 / scale);
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = '#000';
+    ctx.font = '16px system-ui';
+    ctx.fillText(label, 10, 20);
+  }
+
+  function step() {
+    t += speed;
+
+    const phiCommon = phi0 + 2 * Math.PI * f * t;
+    const w1 = (u) => a * Math.sin(2 * Math.PI * f * (u + t) + phiCommon);
+    const w2 = (u) => a * Math.sin(2 * Math.PI * f * (u + t) + phiCommon + deltaPhi);
+    const ws = (u) => w1(u) + w2(u);
+
+    const Es = a ** 2 * (1 + Math.cos(deltaPhi));
+    const intensity = Es / (2 * a ** 2);
+    const r = Math.floor(255 * intensity);
+    intensityRect.setAttribute("fill", `rgb(${r},0,0)`);
+
+    const funcs = [w1, w2, ws];
+    const scale = a + a;
+
+    canvases.forEach((c, i) => {
+      const canvas = document.getElementById(c.id);
+      const ctx = canvas.getContext("2d");
+      const width = canvas.width = canvas.clientWidth * devicePixelRatio;
+      const height = canvas.height = canvas.clientHeight * devicePixelRatio;
+      drawWave(ctx, width, height, funcs[i], c.color, c.label, scale);
+    });
+
+    requestAnimationFrame(step);
+  }
+
+  requestAnimationFrame(step);
+})();
+</script>
+
+</body>
+</html>
